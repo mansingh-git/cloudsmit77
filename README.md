@@ -24,7 +24,7 @@ The process involves three workflows:
 * Triggered by a push or pull request to the main branch.
 * Builds a Python package and saves it as an artifact in GitHub Actions.
 
-### 2. `realease_package.yml`
+### 2. `release_package.yml`
 
 * Triggered by the `build_package.yml` workflow completing successfully.
 * Downloads the artifact from GitHub Actions and pushes it to the staging repository on Cloudsmith.

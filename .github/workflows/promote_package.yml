@@ -29,9 +29,21 @@ jobs:
         id: package-info
         run: |
           # Extract package identifier from webhook payload
-          PACKAGE_SLUG="${{ github.event.client_payload.data.package.slug_perm }}"
-          PACKAGE_NAME="${{ github.event.client_payload.data.package.name }}"
-          PACKAGE_VERSION="${{ github.event.client_payload.data.package.version }}"
+          # Support both direct Cloudsmith format and wrapped format
+          PACKAGE_SLUG="${{ github.event.client_payload.data.slug_perm || github.event.client_payload.data.package.slug_perm }}"
+          PACKAGE_NAME="${{ github.event.client_payload.data.name || github.event.client_payload.data.package.name }}"
+          PACKAGE_VERSION="${{ github.event.client_payload.data.version || github.event.client_payload.data.package.version }}"
+
+          # Fallback: if still empty, try direct data path
+          if [ -z "$PACKAGE_SLUG" ]; then
+            PACKAGE_SLUG="${{ github.event.client_payload.data.slug_perm }}"
+          fi
+          if [ -z "$PACKAGE_NAME" ]; then
+            PACKAGE_NAME="${{ github.event.client_payload.data.name }}"
+          fi
+          if [ -z "$PACKAGE_VERSION" ]; then
+            PACKAGE_VERSION="${{ github.event.client_payload.data.version }}"
+          fi
 
           echo "Package Slug: $PACKAGE_SLUG"
           echo "Package Name: $PACKAGE_NAME"

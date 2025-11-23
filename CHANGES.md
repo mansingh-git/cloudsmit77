@@ -1,7 +1,6 @@
 # CI/CD Assessment - Changes Documentation
 
 This document outlines all issues found and fixes applied to the GitHub Actions pipeline for building, releasing, and promoting packages to Cloudsmith.
-
 ---
 
 ## 6 Issues Found and Fixed

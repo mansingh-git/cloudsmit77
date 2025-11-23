@@ -30,20 +30,9 @@ jobs:
         run: |
           # Extract package identifier from webhook payload
           # Support both direct Cloudsmith format and wrapped format
-          PACKAGE_SLUG="${{ github.event.client_payload.data.slug_perm || github.event.client_payload.data.package.slug_perm }}"
-          PACKAGE_NAME="${{ github.event.client_payload.data.name || github.event.client_payload.data.package.name }}"
-          PACKAGE_VERSION="${{ github.event.client_payload.data.version || github.event.client_payload.data.package.version }}"
-
-          # Fallback: if still empty, try direct data path
-          if [ -z "$PACKAGE_SLUG" ]; then
-            PACKAGE_SLUG="${{ github.event.client_payload.data.slug_perm }}"
-          fi
-          if [ -z "$PACKAGE_NAME" ]; then
-            PACKAGE_NAME="${{ github.event.client_payload.data.name }}"
-          fi
-          if [ -z "$PACKAGE_VERSION" ]; then
-            PACKAGE_VERSION="${{ github.event.client_payload.data.version }}"
-          fi
+          PACKAGE_SLUG="${{ github.event.client_payload.data.slug_perm }}"
+          PACKAGE_NAME="${{ github.event.client_payload.data.name }}"
+          PACKAGE_VERSION="${{ github.event.client_payload.data.version }}"
 
           echo "Package Slug: $PACKAGE_SLUG"
           echo "Package Name: $PACKAGE_NAME"
@@ -65,6 +54,7 @@ jobs:
 
           echo "Tagging package $PACKAGE_SLUG with 'ready-for-production'"
 
+          # Tag the package with ready-for-production based on webhook output
           cloudsmith tags add \
             ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }}/$PACKAGE_SLUG \
             ready-for-production
@@ -72,14 +62,14 @@ jobs:
 
       - name: Query and promote all packages tagged with ready-for-production
         run: |
-          # Query for all packages tagged with ready-for-production
+          # PACKAGE_QUERY returns all packages tagged with ready-for-production
           PACKAGE_QUERY="tag:ready-for-production"
           echo "Searching for packages with query: $PACKAGE_QUERY"
 
-          PACKAGE_DATA=$(cloudsmith list package ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }} -q "$PACKAGE_QUERY" -F json)
+          PACKAGE_DATA=$(cloudsmith list packages ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }} -q "$PACKAGE_QUERY" -F json)
 
           # Get all package identifiers
-          IDENTIFIERS=$(echo "$PACKAGE_DATA" | jq -r '.data[].slug_perm // .[]?.slug_perm // empty')
+          IDENTIFIERS=$(echo "$PACKAGE_DATA" | jq -r '.data[].slug_perm // empty')
 
           if [ -z "$IDENTIFIERS" ]; then
             echo "No packages found with ready-for-production tag"
@@ -89,7 +79,7 @@ jobs:
           echo "Found packages to promote:"
           echo "$IDENTIFIERS"
 
-          # Promote each package
+          # Promote each tagged package using cloudsmith mv command
           for IDENTIFIER in $IDENTIFIERS; do
             echo "Promoting package: $IDENTIFIER"
             cloudsmith mv --yes \
@@ -99,4 +89,3 @@ jobs:
 
           echo "All tagged packages have been promoted to production"
         shell: bash
-        #adding comments to test

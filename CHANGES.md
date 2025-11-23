@@ -146,30 +146,37 @@ To trigger the promote pipeline when a package syncs successfully, create a webh
 
    | Field | Value |
    |-------|-------|
-   | **Webhook URL** | `https://api.github.com/repos/{OWNER}/{REPO}/dispatches` |
-   | **Events** | Select `Package Synchronised` |
-   | **Request Headers** | Add: `Authorization: Bearer {GITHUB_PAT}` |
-   | **Request Headers** | Add: `Accept: application/vnd.github.v3+json` |
-   | **Payload Template** | See below |
+   | **Target URL** | `https://api.github.com/repos/{OWNER}/{REPO}/dispatches` |
+   | **Payload Format** | `Handlebars template` |
+   | **Template Format** | `JSON (application/json)` |
+   | **Event Subscriptions** | Select `Package Synchronised` (Sync completed) |
 
-4. **Payload Template:**
+4. **Security Settings:**
+
+   | Field | Value |
+   |-------|-------|
+   | **Secret header** | `Authorization` |
+   | **Secret value** | `token {GITHUB_PAT}` |
+   | **HMAC signature key** | *(leave empty)* |
+   | **Verify SSL certificate** | ✅ Enabled |
+
+5. **Payload Template (Package synchronized):**
    ```json
    {
      "event_type": "cloudsmith-webhook",
      "client_payload": {
        "data": {
-         "package": {
-           "slug_perm": "{{ package.slug_perm }}",
-           "name": "{{ package.name }}",
-           "version": "{{ package.version }}"
-         }
+         "slug_perm": "{{data.slug_perm}}",
+         "name": "{{data.name}}",
+         "version": "{{data.version}}"
        }
      }
    }
    ```
 
-5. **Required GitHub PAT Permissions:**
-   - The GitHub Personal Access Token needs `repo` scope to trigger repository dispatch events
+6. **Required GitHub PAT Permissions:**
+   - Create a Fine-grained PAT or Classic PAT with `repo` scope
+   - The token must have access to trigger repository dispatch events
 
 ---
 

@@ -305,3 +305,4 @@ The workflows use the official Cloudsmith CLI action with OIDC:
 5. **Push a change to the main branch to trigger the pipeline**
 
 6. **Monitor the workflow runs in GitHub Actions**
+7. #

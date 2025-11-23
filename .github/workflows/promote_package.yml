@@ -1,21 +1,26 @@
 name: Promote Python Package
 
 on:
-  repository_dispatch:
-    types: [cloudsmith-webhook]
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: 'Package version to promote (e.g., 0.0.1) - leave empty to promote all tagged packages'
+        required: false
+        type: string
 
 env:
   CLOUDSMITH_NAMESPACE: ${{ vars.CLOUDSMITH_NAMESPACE }}
   CLOUDSMITH_STAGING_REPO: 'staging'
   CLOUDSMITH_PRODUCTION_REPO: 'production'
   CLOUDSMITH_SERVICE_SLUG: ${{ vars.CLOUDSMITH_SERVICE_SLUG }}
+  PACKAGE_NAME: 'example-package'
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  tag-and-promote:
+  promote:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,78 +30,56 @@ jobs:
           oidc-namespace: ${{ env.CLOUDSMITH_NAMESPACE }}
           oidc-service-slug: ${{ env.CLOUDSMITH_SERVICE_SLUG }}
 
-      - name: Extract package info from webhook payload
-        id: package-info
+      - name: Tag and promote package
         run: |
-          # Extract package identifier from webhook payload
-          # Support both direct Cloudsmith format and wrapped format
-          PACKAGE_SLUG="${{ github.event.client_payload.data.slug_perm || github.event.client_payload.data.package.slug_perm }}"
-          PACKAGE_NAME="${{ github.event.client_payload.data.name || github.event.client_payload.data.package.name }}"
-          PACKAGE_VERSION="${{ github.event.client_payload.data.version || github.event.client_payload.data.package.version }}"
-
-          # Fallback: if still empty, try direct data path
-          if [ -z "$PACKAGE_SLUG" ]; then
-            PACKAGE_SLUG="${{ github.event.client_payload.data.slug_perm }}"
-          fi
-          if [ -z "$PACKAGE_NAME" ]; then
-            PACKAGE_NAME="${{ github.event.client_payload.data.name }}"
-          fi
-          if [ -z "$PACKAGE_VERSION" ]; then
-            PACKAGE_VERSION="${{ github.event.client_payload.data.version }}"
+          # Determine query based on input
+          if [ -n "${{ github.event.inputs.package_version }}" ]; then
+            # Query for specific version
+            PACKAGE_QUERY="name:${{ env.PACKAGE_NAME }} AND version:${{ github.event.inputs.package_version }}"
+            echo "Looking for specific package: $PACKAGE_QUERY"
+          else
+            # Query for packages tagged ready-for-production, or all packages if none tagged
+            PACKAGE_QUERY="tag:ready-for-production"
+            echo "Looking for packages with ready-for-production tag"
           fi
 
-          echo "Package Slug: $PACKAGE_SLUG"
-          echo "Package Name: $PACKAGE_NAME"
-          echo "Package Version: $PACKAGE_VERSION"
+          # Get packages from staging
+          PACKAGE_DATA=$(cloudsmith list packages ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }} -q "$PACKAGE_QUERY" -F json 2>/dev/null || echo '{"data":[]}')
 
-          echo "package_slug=$PACKAGE_SLUG" >> $GITHUB_OUTPUT
-          echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
-          echo "package_version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
-        shell: bash
+          # Extract package slugs
+          IDENTIFIERS=$(echo "$PACKAGE_DATA" | jq -r '.data[].slug_perm // empty')
 
-      - name: Tag package with ready-for-production
-        run: |
-          PACKAGE_SLUG="${{ steps.package-info.outputs.package_slug }}"
-
-          if [ -z "$PACKAGE_SLUG" ] || [ "$PACKAGE_SLUG" = "" ]; then
-            echo "No package slug found in webhook payload"
-            exit 1
+          # If no tagged packages found and no specific version requested, get latest package
+          if [ -z "$IDENTIFIERS" ] && [ -z "${{ github.event.inputs.package_version }}" ]; then
+            echo "No tagged packages found, getting latest package..."
+            PACKAGE_DATA=$(cloudsmith list packages ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }} -q "name:${{ env.PACKAGE_NAME }}" -F json 2>/dev/null || echo '{"data":[]}')
+            IDENTIFIERS=$(echo "$PACKAGE_DATA" | jq -r '.data[0].slug_perm // empty')
           fi
-
-          echo "Tagging package $PACKAGE_SLUG with 'ready-for-production'"
-
-          cloudsmith tags add \
-            ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }}/$PACKAGE_SLUG \
-            ready-for-production
-        shell: bash
-
-      - name: Query and promote all packages tagged with ready-for-production
-        run: |
-          # Query for all packages tagged with ready-for-production
-          PACKAGE_QUERY="tag:ready-for-production"
-          echo "Searching for packages with query: $PACKAGE_QUERY"
-
-          PACKAGE_DATA=$(cloudsmith list package ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }} -q "$PACKAGE_QUERY" -F json)
-
-          # Get all package identifiers
-          IDENTIFIERS=$(echo "$PACKAGE_DATA" | jq -r '.data[].slug_perm // .[]?.slug_perm // empty')
 
           if [ -z "$IDENTIFIERS" ]; then
-            echo "No packages found with ready-for-production tag"
-            exit 0
+            echo "No packages found to promote"
+            exit 1
           fi
 
           echo "Found packages to promote:"
           echo "$IDENTIFIERS"
 
-          # Promote each package
+          # Tag and promote each package
           for IDENTIFIER in $IDENTIFIERS; do
-            echo "Promoting package: $IDENTIFIER"
+            echo "Processing package: $IDENTIFIER"
+
+            # Tag with ready-for-production
+            echo "Tagging package with ready-for-production..."
+            cloudsmith tags add \
+              ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }}/$IDENTIFIER \
+              ready-for-production || true
+
+            # Promote to production
+            echo "Promoting package to production..."
             cloudsmith mv --yes \
               ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }}/$IDENTIFIER \
               ${{ env.CLOUDSMITH_PRODUCTION_REPO }}
           done
 
-          echo "All tagged packages have been promoted to production"
+          echo "All packages have been promoted to production"
         shell: bash
-        #adding comments to test

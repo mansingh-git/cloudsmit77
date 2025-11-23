@@ -15,7 +15,7 @@ env:
 
 permissions:
   contents: read
-  actions: write
+  actions: read
   id-token: write
 
 jobs:
@@ -44,48 +44,10 @@ jobs:
         shell: bash
 
       - name: Push package to Cloudsmith
-        id: push-package
         run: |
           if ! ls dist/*.tar.gz 1> /dev/null 2>&1; then
             echo "No package found to upload"
             exit 1
           fi
-
-          # Get package filename
-          PACKAGE_FILE=$(ls dist/*.tar.gz | head -1)
-          PACKAGE_FILENAME=$(basename "$PACKAGE_FILE")
-          echo "Package filename: $PACKAGE_FILENAME"
-
-          # Push to Cloudsmith
-          cloudsmith push python ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }} "$PACKAGE_FILE" --republish
-
-          # Wait for package to sync (max 60 seconds)
-          echo "Waiting for package to sync..."
-          sleep 10
-
-          # Get the package slug from Cloudsmith
-          for i in {1..6}; do
-            PACKAGE_DATA=$(cloudsmith list packages ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }} -q "filename:$PACKAGE_FILENAME" -F json 2>/dev/null || echo '{"data":[]}')
-            PACKAGE_SLUG=$(echo "$PACKAGE_DATA" | jq -r '.data[0].slug_perm // empty')
-            PACKAGE_NAME=$(echo "$PACKAGE_DATA" | jq -r '.data[0].name // empty')
-            PACKAGE_VERSION=$(echo "$PACKAGE_DATA" | jq -r '.data[0].version // empty')
-
-            if [ -n "$PACKAGE_SLUG" ] && [ "$PACKAGE_SLUG" != "null" ]; then
-              echo "Package synced! Slug: $PACKAGE_SLUG"
-              break
-            fi
-            echo "Waiting for sync... attempt $i/6"
-            sleep 10
-          done
-
-          echo "package_slug=$PACKAGE_SLUG" >> $GITHUB_OUTPUT
-          echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
-          echo "package_version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          cloudsmith push python ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }} dist/*.tar.gz --republish
         shell: bash
-
-      - name: Trigger Promote Workflow
-        if: steps.push-package.outputs.package_slug != ''
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          event-type: cloudsmith-webhook
-          client-payload: '{"data": {"slug_perm": "${{ steps.push-package.outputs.package_slug }}", "name": "${{ steps.push-package.outputs.package_name }}", "version": "${{ steps.push-package.outputs.package_version }}"}}'
